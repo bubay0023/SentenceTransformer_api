@@ -1,14 +1,13 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Header
 from pydantic import BaseModel
-from typing import Union, List
+from typing import Union, List, Optional
 from sentence_transformers import SentenceTransformer
 import uvicorn
+import os
 
 # ==============================
 # CONFIG
 # ==============================
-
-import os
 API_KEYS = {os.environ.get("API_KEY", "my-secret-key-123")}
 
 # Load embedding model
@@ -23,10 +22,16 @@ async def verify_api_key(authorization: str = Header(...)):
     try:
         scheme, token = authorization.split()
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authorization header format")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authorization header format"
+        )
 
     if scheme.lower() != "bearer" or token not in API_KEYS:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API key")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key"
+        )
 
     return token
 
@@ -36,6 +41,12 @@ async def verify_api_key(authorization: str = Header(...)):
 class EmbeddingRequest(BaseModel):
     model: str
     input: Union[str, List[str], List[int], List[List[int]]]
+
+    # Optional fields (ignored in main logic, just passthrough)
+    dimensions: Optional[int] = None
+    encoding_format: Optional[str] = None
+    user: Optional[str] = None
+
 
 @app.post("/v1/embeddings")
 async def create_embeddings(
@@ -48,10 +59,8 @@ async def create_embeddings(
 
     elif isinstance(request.input, list):
         if all(isinstance(x, int) for x in request.input):
-            # Single tokenized sequence → turn back into string
             texts = [" ".join(map(str, request.input))]
         elif all(isinstance(x, list) and all(isinstance(i, int) for i in x) for x in request.input):
-            # Batch of tokenized sequences
             texts = [" ".join(map(str, x)) for x in request.input]
         elif all(isinstance(x, str) for x in request.input):
             texts = request.input
@@ -79,6 +88,10 @@ async def create_embeddings(
         "usage": {
             "prompt_tokens": 0,
             "total_tokens": 0
-        }
+        },
+        # Just echo back optional fields if they were provided
+        "dimensions": request.dimensions,
+        "encoding_format": request.encoding_format,
+        "user": request.user
     }
     return response
